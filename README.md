@@ -9,6 +9,8 @@ This documentation provides instructions for setting up and using the Optical Ch
 
 To use the OCR functionality, you need to install the core package and its native dependencies, including `react-native-vision-camera`, which is used for camera access.
 
+**Note:** This library works with the latest React Native version and its newest architecture. If you run into any issues or have questions, don’t hesitate to open an issue or drop me a message. I’m happy to help!
+
 ### 1\. Install NPM Packages
 
 Install the necessary dependencies in your React Native project:
@@ -300,3 +302,13 @@ This asynchronous function orchestrates the image capture and text recognition p
 ### 3\. Focus Frame Overlay
 
 The `styles.focusFrame` and its inner `styles.corner` components create a visual rectangular guide on top of the camera feed. This helps the user position the text they want to scan precisely within the region defined by the `focusRegion` normalized coordinates.
+
+Contributions are welcome—feel free to submit PRs or suggest improvements.  
+
+**Roadmap:** Upcoming features include real-time frame processing for live OCR directly from the camera feed.
+
+
+
+
+
+
