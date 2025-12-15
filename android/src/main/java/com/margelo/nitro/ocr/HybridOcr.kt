@@ -76,42 +76,88 @@ class HybridOcr : HybridOcrSpec() {
         val bitmap = BitmapFactory.decodeFile(cleanPath)
             ?: throw Exception("Could not decode bitmap from path: $cleanPath")
 
-        return performOCR(bitmap, region)
+        // Handle rotation based on EXIF
+        val rotatedBitmap = try {
+            val exif = android.media.ExifInterface(cleanPath)
+            val orientation = exif.getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION,
+                android.media.ExifInterface.ORIENTATION_UNDEFINED
+            )
+
+            val matrix = android.graphics.Matrix()
+            when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            }
+            
+            if (orientation != android.media.ExifInterface.ORIENTATION_NORMAL && orientation != android.media.ExifInterface.ORIENTATION_UNDEFINED) {
+                 Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                 bitmap
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("HybridOcr", "Error reading EXIF", e)
+             bitmap
+        }
+
+        return performOCR(rotatedBitmap, region)
     }
 
     private suspend fun performOCR(bitmap: Bitmap, region: Region?): String = suspendCoroutine { continuation ->
         try {
-            val image = InputImage.fromBitmap(bitmap, 0)
+            val processedBitmap = if (region != null) {
+                // Crop the bitmap
+                val imageWidth = bitmap.width
+                val imageHeight = bitmap.height
+                
+                android.util.Log.d("HybridOcr", " Original Bitmap: ${imageWidth}x${imageHeight}")
+                android.util.Log.d("HybridOcr", " Region Normalized: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}")
+                
+                val startX = (region.x * imageWidth).toInt().coerceAtLeast(0)
+                val startY = (region.y * imageHeight).toInt().coerceAtLeast(0)
+                val width = (region.width * imageWidth).toInt().coerceAtMost(imageWidth - startX)
+                val height = (region.height * imageHeight).toInt().coerceAtMost(imageHeight - startY)
+                
+                android.util.Log.d("HybridOcr", " Calculated Crop: x=$startX, y=$startY, w=$width, h=$height")
+                
+                if (width <= 0 || height <= 0) {
+                     throw Exception("Invalid crop region dimensions")
+                }
+
+                Bitmap.createBitmap(bitmap, startX, startY, width, height)
+            } else {
+                bitmap
+            }
+
+            val image = InputImage.fromBitmap(processedBitmap, 0)
+            
+            // If we cropped, let's save it to a file to return to JS
+            // This is optional but good for debugging/UI as seen in Camera.tsx
+             var croppedPath: String? = null
+             if (region != null) {
+                 val cacheDir = System.getProperty("java.io.tmpdir")
+                 val file = File(cacheDir, "cropped_${System.currentTimeMillis()}.jpg")
+                 java.io.FileOutputStream(file).use { out ->
+                     processedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                 }
+                 croppedPath = file.absolutePath
+             }
 
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    if (region != null) {
-                        // Filter text blocks by region
-                        val imageWidth = bitmap.width
-                        val imageHeight = bitmap.height
-
-                        // Convert normalized coordinates to pixel coordinates
-                        val regionRect = Rect(
-                            (region.x * imageWidth).toInt(),
-                            (region.y * imageHeight).toInt(),
-                            ((region.x + region.width) * imageWidth).toInt(),
-                            ((region.y + region.height) * imageHeight).toInt()
-                        )
-
-                        val filteredText = visionText.textBlocks
-                            .filter { block ->
-                                block.boundingBox?.let { bbox ->
-                                    Rect.intersects(regionRect, bbox)
-                                } ?: false
-                            }
-                            .joinToString("\n") { it.text }
-
-                        continuation.resume(filteredText)
+                    val text = visionText.text
+                    
+                    // Construct a simpler JSON-like string manually or just return text
+                    // To support the Camera.tsx logic which expects JSON:
+                    if (croppedPath != null) {
+                        // Very simple JSON construction to avoid adding JSON library dependency if not present
+                        // Escaping might be needed for real apps but for simple OCR text it might suffice
+                        val cleanText = text.replace("\"", "\\\"").replace("\n", "\\n")
+                        val json = "{\"text\": \"$cleanText\", \"croppedImagePath\": \"file://$croppedPath\"}"
+                        continuation.resume(json)
                     } else {
-                        // Return all text
-                        val allText = visionText.textBlocks
-                            .joinToString("\n") { it.text }
-                        continuation.resume(allText)
+                        continuation.resume(text)
                     }
                 }
                 .addOnFailureListener { exception ->
