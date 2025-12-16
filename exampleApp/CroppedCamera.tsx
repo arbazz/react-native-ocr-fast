@@ -28,10 +28,10 @@ export default function CroppedCamera() {
     // Handle the capture flow
     const handleCapture = async () => {
         if (isProcessing || !camera.current) return
+        const photo = await camera.current.takePhoto()
 
         setIsProcessing(true)
         try {
-            const photo = await camera.current.takePhoto()
 
             // Perform OCR on cropped region
             // Note: We assume native module handles the cropping

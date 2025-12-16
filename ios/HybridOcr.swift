@@ -68,7 +68,11 @@ class HybridOcr: HybridOcrSpec {
         var imageToProcess = cgImage
         var croppedImagePath: String? = nil
         
+        print("HybridOcr: Original Image: \(cgImage.width)x\(cgImage.height)")
+        
         if let region = region {
+             print("HybridOcr: Region Normalized: x=\(region.minX), y=\(region.minY), w=\(region.width), h=\(region.height)")
+             
             let width = Double(cgImage.width)
             let height = Double(cgImage.height)
             let cropRect = CGRect(
@@ -78,12 +82,14 @@ class HybridOcr: HybridOcrSpec {
                 height: region.height * height
             )
             
+            print("HybridOcr: Calculated Crop: \(cropRect)")
+            
             if let cropped = cgImage.cropping(to: cropRect) {
                 imageToProcess = cropped
                 
                 // Save cropped image to temp file for visual debugging
                 let tempDir = FileManager.default.temporaryDirectory
-                let fileName = UUID().uuidString + ".jpg"
+                let fileName = "cropped_\(Date().timeIntervalSince1970).jpg"
                 let fileURL = tempDir.appendingPathComponent(fileName)
                 
                 let uiImage = UIImage(cgImage: cropped)
@@ -91,6 +97,8 @@ class HybridOcr: HybridOcrSpec {
                     try? data.write(to: fileURL)
                     croppedImagePath = fileURL.absoluteString
                 }
+            } else {
+                print("HybridOcr: Cropping failed!")
             }
         }
 
