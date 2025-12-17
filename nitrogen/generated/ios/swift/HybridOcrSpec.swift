@@ -18,7 +18,7 @@ public protocol HybridOcrSpec_protocol: HybridObject {
   func scan(input: String) throws -> String
   func scanFrame(frame: Frame) throws -> Promise<String>
   func scanImage(path: String) throws -> Promise<String>
-  func scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Bool?, contrast: Double?) throws -> Promise<String>
+  func scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Bool?, contrast: Double?, useTesseract: Bool?) throws -> Promise<String>
 }
 
 public extension HybridOcrSpec_protocol {
