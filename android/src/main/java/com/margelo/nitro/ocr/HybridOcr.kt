@@ -2,7 +2,10 @@ package com.margelo.nitro.ocr
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Rect
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -11,6 +14,7 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlin.math.roundToInt
 
 class HybridOcr : HybridOcrSpec() {
 
@@ -52,35 +56,44 @@ class HybridOcr : HybridOcrSpec() {
             throw Exception("Invalid frame")
         }
 
-        // Get the native buffer from frame
         val nativeBuffer = frame.getNativeBuffer()
-
-        // TODO: Convert native buffer to InputImage
-        // This depends on your Frame implementation
-        // For now, throwing an exception
         throw Exception("scanFrame not yet implemented for Android")
     }
 
-    private suspend fun recognizeTextFromImage(path: String, region: Region?, digitsOnly: Boolean, contrast: Double): String {
-        // Remove file:// prefix if present
+    private suspend fun recognizeTextFromImage(
+        path: String, 
+        region: Region?, 
+        digitsOnly: Boolean, 
+        contrast: Double
+    ): String {
         val cleanPath = if (path.startsWith("file://")) {
             path.substring(7)
         } else {
             path
         }
 
-        // Load image from file
         val file = File(cleanPath)
         if (!file.exists()) {
             throw Exception("Could not load image from path: $cleanPath")
         }
 
-        val bitmap = BitmapFactory.decodeFile(cleanPath)
+        // Load with better options for quality
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inScaled = false
+        }
+        
+        val bitmap = BitmapFactory.decodeFile(cleanPath, options)
             ?: throw Exception("Could not decode bitmap from path: $cleanPath")
 
-        // Handle rotation based on EXIF
-        val rotatedBitmap = try {
-            val exif = android.media.ExifInterface(cleanPath)
+        val rotatedBitmap = handleRotation(bitmap, cleanPath)
+
+        return performOCR(rotatedBitmap, region, digitsOnly, contrast)
+    }
+
+    private fun handleRotation(bitmap: Bitmap, path: String): Bitmap {
+        return try {
+            val exif = android.media.ExifInterface(path)
             val orientation = exif.getAttributeInt(
                 android.media.ExifInterface.TAG_ORIENTATION,
                 android.media.ExifInterface.ORIENTATION_UNDEFINED
@@ -93,97 +106,60 @@ class HybridOcr : HybridOcrSpec() {
                 android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
             }
             
-            if (orientation != android.media.ExifInterface.ORIENTATION_NORMAL && orientation != android.media.ExifInterface.ORIENTATION_UNDEFINED) {
-                 Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            if (orientation != android.media.ExifInterface.ORIENTATION_NORMAL && 
+                orientation != android.media.ExifInterface.ORIENTATION_UNDEFINED) {
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
             } else {
-                 bitmap
+                bitmap
             }
         } catch (e: Exception) {
             android.util.Log.e("HybridOcr", "Error reading EXIF", e)
-             bitmap
+            bitmap
         }
-
-        return performOCR(rotatedBitmap, region, digitsOnly, contrast)
     }
 
-    private suspend fun performOCR(bitmap: Bitmap, region: Region?, digitsOnly: Boolean, contrast: Double): String = suspendCoroutine { continuation ->
+    private suspend fun performOCR(
+        bitmap: Bitmap, 
+        region: Region?, 
+        digitsOnly: Boolean, 
+        contrast: Double
+    ): String = suspendCoroutine { continuation ->
         try {
-             val processedBitmap = if (region != null) {
-                // Crop the bitmap
-                val imageWidth = bitmap.width
-                val imageHeight = bitmap.height
-                
-                android.util.Log.d("HybridOcr", " Original Bitmap: ${imageWidth}x${imageHeight}")
-                android.util.Log.d("HybridOcr", " Region Normalized: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}")
-                
-                val startX = (region.x * imageWidth).toInt().coerceAtLeast(0)
-                val startY = (region.y * imageHeight).toInt().coerceAtLeast(0)
-                val width = (region.width * imageWidth).toInt().coerceAtMost(imageWidth - startX)
-                val height = (region.height * imageHeight).toInt().coerceAtMost(imageHeight - startY)
-                
-                android.util.Log.d("HybridOcr", " Calculated Crop: x=$startX, y=$startY, w=$width, h=$height")
-                
-                if (width <= 0 || height <= 0) {
-                     throw Exception("Invalid crop region dimensions")
-                }
-
-                Bitmap.createBitmap(bitmap, startX, startY, width, height)
+            // Step 1: Crop if region specified
+            val croppedBitmap = if (region != null) {
+                cropBitmap(bitmap, region)
             } else {
                 bitmap
             }
             
-            // Apply contrast adjustment if needed (simple approximation)
-            val finalBitmap = if (contrast != 1.0) {
-                 val cm = android.graphics.ColorMatrix()
-                 val contrastScale = contrast.toFloat()
-                 // Scale relative to 1.0
-                 val scale = contrastScale
-                 val translate = (-.5f * scale + .5f) * 255.0f
-                 cm.set(floatArrayOf(
-                     scale, 0f, 0f, 0f, translate,
-                     0f, scale, 0f, 0f, translate,
-                     0f, 0f, scale, 0f, translate,
-                     0f, 0f, 0f, 1f, 0f
-                 ))
-                 val bmp = Bitmap.createBitmap(processedBitmap.width, processedBitmap.height, processedBitmap.config ?: Bitmap.Config.ARGB_8888)
-                 val canvas = android.graphics.Canvas(bmp)
-                 val paint = android.graphics.Paint()
-                 paint.colorFilter = android.graphics.ColorMatrixColorFilter(cm)
-                 canvas.drawBitmap(processedBitmap, 0f, 0f, paint)
-                 bmp
+            // Step 2: Upscale if image is too small (critical for accuracy)
+            val upscaledBitmap = upscaleIfNeeded(croppedBitmap)
+            
+            // Step 3: Preprocessing for better OCR accuracy
+            val preprocessedBitmap = preprocessForOCR(upscaledBitmap, contrast, digitsOnly)
+            
+            // Save processed image for debugging/return
+            val processedPath = if (region != null || contrast != 1.0) {
+                saveProcessedImage(preprocessedBitmap)
             } else {
-                 processedBitmap
+                null
             }
 
-            val image = InputImage.fromBitmap(finalBitmap, 0)
-            
-            // If we cropped, let's save it to a file to return to JS
-             var croppedPath: String? = null
-             if (region != null || contrast != 1.0) {
-                 val cacheDir = System.getProperty("java.io.tmpdir")
-                 val file = File(cacheDir, "processed_${System.currentTimeMillis()}.jpg")
-                 java.io.FileOutputStream(file).use { out ->
-                     finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
-                 }
-                 croppedPath = file.absolutePath
-             }
+            val image = InputImage.fromBitmap(preprocessedBitmap, 0)
 
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
                     var text = visionText.text
                     
+                    android.util.Log.d("HybridOcr", "Raw OCR result: $text")
+                    
                     if (digitsOnly) {
-                        // Keep only digits and newlines
-                        text = text.filter { it.isDigit() || it == '\n' || it == '.' || it == ',' }
+                        text = text.filter { it.isDigit() || it == '\n' || it == '.' || it == ',' || it == '-' }
                     }
                     
-                    // Construct a simpler JSON-like string manually or just return text
-                    // To support the Camera.tsx logic which expects JSON:
-                    if (croppedPath != null) {
-                        // Very simple JSON construction to avoid adding JSON library dependency if not present
-                        // Escaping might be needed for real apps but for simple OCR text it might suffice
+                    if (processedPath != null) {
                         val cleanText = text.replace("\"", "\\\"").replace("\n", "\\n")
-                        val json = "{\"text\": \"$cleanText\", \"croppedImagePath\": \"file://$croppedPath\"}"
+                        val json = "{\"text\": \"$cleanText\", \"croppedImagePath\": \"file://$processedPath\"}"
                         continuation.resume(json)
                     } else {
                         continuation.resume(text)
@@ -197,10 +173,120 @@ class HybridOcr : HybridOcrSpec() {
         }
     }
 
+    private fun cropBitmap(bitmap: Bitmap, region: Region): Bitmap {
+        val imageWidth = bitmap.width
+        val imageHeight = bitmap.height
+        
+        android.util.Log.d("HybridOcr", "Original Bitmap: ${imageWidth}x${imageHeight}")
+        android.util.Log.d("HybridOcr", "Region: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}")
+        
+        val startX = (region.x * imageWidth).roundToInt().coerceIn(0, imageWidth - 1)
+        val startY = (region.y * imageHeight).roundToInt().coerceIn(0, imageHeight - 1)
+        val width = (region.width * imageWidth).roundToInt().coerceAtMost(imageWidth - startX)
+        val height = (region.height * imageHeight).roundToInt().coerceAtMost(imageHeight - startY)
+        
+        android.util.Log.d("HybridOcr", "Crop: x=$startX, y=$startY, w=$width, h=$height")
+        
+        if (width <= 0 || height <= 0) {
+            throw Exception("Invalid crop region dimensions")
+        }
+
+        return Bitmap.createBitmap(bitmap, startX, startY, width, height)
+    }
+
+    private fun upscaleIfNeeded(bitmap: Bitmap): Bitmap {
+        // ML Kit works best with images at least 640px on the smallest side
+        val minDimension = 640
+        val currentMin = minOf(bitmap.width, bitmap.height)
+        
+        if (currentMin < minDimension) {
+            val scale = minDimension.toFloat() / currentMin
+            val newWidth = (bitmap.width * scale).roundToInt()
+            val newHeight = (bitmap.height * scale).roundToInt()
+            
+            android.util.Log.d("HybridOcr", "Upscaling from ${bitmap.width}x${bitmap.height} to ${newWidth}x${newHeight}")
+            
+            return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        }
+        
+        return bitmap
+    }
+
+    private fun preprocessForOCR(bitmap: Bitmap, contrast: Double, digitsOnly: Boolean): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(outputBitmap)
+        val paint = Paint()
+        
+        // Apply image enhancements
+        val colorMatrix = ColorMatrix()
+        
+        // 1. Adjust contrast (more aggressive for digits)
+        val contrastValue = if (digitsOnly) {
+            (contrast * 1.3).toFloat().coerceIn(1.0f, 2.5f)
+        } else {
+            contrast.toFloat().coerceIn(1.0f, 2.0f)
+        }
+        
+        // 2. Increase sharpness
+        val sharpnessMatrix = ColorMatrix(floatArrayOf(
+            0f, -1f, 0f, 0f, 0f,
+            -1f, 5f, -1f, 0f, 0f,
+            0f, -1f, 0f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        
+        // 3. Apply contrast
+        val scale = contrastValue
+        val translate = (-.5f * scale + .5f) * 255.0f
+        
+        colorMatrix.set(floatArrayOf(
+            scale, 0f, 0f, 0f, translate,
+            0f, scale, 0f, 0f, translate,
+            0f, 0f, scale, 0f, translate,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        
+        // 4. Increase brightness slightly for better recognition
+        val brightnessAdjust = if (digitsOnly) 10f else 5f
+        val brightnessMatrix = ColorMatrix(floatArrayOf(
+            1f, 0f, 0f, 0f, brightnessAdjust,
+            0f, 1f, 0f, 0f, brightnessAdjust,
+            0f, 0f, 1f, 0f, brightnessAdjust,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        
+        colorMatrix.postConcat(brightnessMatrix)
+        
+        paint.colorFilter = ColorMatrixColorFilter(colorMatrix)
+        paint.isAntiAlias = true
+        paint.isDither = false
+        paint.isFilterBitmap = false
+        
+        canvas.drawBitmap(bitmap, 0f, 0f, paint)
+        
+        android.util.Log.d("HybridOcr", "Applied preprocessing with contrast=$contrastValue")
+        
+        return outputBitmap
+    }
+
+    private fun saveProcessedImage(bitmap: Bitmap): String {
+        val cacheDir = System.getProperty("java.io.tmpdir") ?: "/data/local/tmp"
+        val file = File(cacheDir, "processed_${System.currentTimeMillis()}.jpg")
+        
+        java.io.FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+        }
+        
+        android.util.Log.d("HybridOcr", "Saved processed image to: ${file.absolutePath}")
+        
+        return file.absolutePath
+    }
+
     override val memorySize: Long
         get() = 0L
 
-    // Helper data class for region
     private data class Region(
         val x: Double,
         val y: Double,
