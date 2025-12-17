@@ -1,6 +1,6 @@
 {
   "name": "react-native-ocr-fast",
-  "version": "1.0.7",
+  "version": "1.1.1",
   "description": "react-native-ocr-fast",
   "main": "lib/index",
   "module": "lib/index",
