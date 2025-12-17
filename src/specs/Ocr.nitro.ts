@@ -34,5 +34,5 @@ export interface Ocr extends HybridObject<{
     scan(input: string): string
     scanFrame(frame: Frame): Promise<string>
     scanImage(path: string): Promise<string>
-    scanImageWithRegion(path: string, x: number, y: number, width: number, height: number): Promise<string>
+    scanImageWithRegion(path: string, x: number, y: number, width: number, height: number, digitsOnly?: boolean, contrast?: number): Promise<string>
 }

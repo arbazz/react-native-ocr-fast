@@ -31,6 +31,7 @@ namespace margelo::nitro::ocr { enum class PixelFormat; }
 #include <exception>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 // C++ helpers for Swift

@@ -21,10 +21,10 @@ class HybridOcr: HybridOcrSpec {
         }
     }
 
-    func scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double) throws -> Promise<String> {
+    func scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Bool?, contrast: Double?) throws -> Promise<String> {
         return Promise.async {
             let region = CGRect(x: x, y: y, width: width, height: height)
-            return try await self.recognizeTextFromImage(path, region: region)
+            return try await self.recognizeTextFromImage(path, region: region, digitsOnly: digitsOnly ?? false, contrast: contrast ?? 1.0)
         }
     }
 
@@ -39,10 +39,10 @@ class HybridOcr: HybridOcrSpec {
             throw NSError(domain: "HybridOcr", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid CVPixelBuffer pointer"])
         }
 
-        return try await performOCR(on: pixelBuffer, region: nil)
+        return try await performOCR(on: pixelBuffer, region: nil, digitsOnly: false)
     }
 
-    private func recognizeTextFromImage(_ path: String, region: CGRect?) async throws -> String {
+    private func recognizeTextFromImage(_ path: String, region: CGRect?, digitsOnly: Bool, contrast: Double) async throws -> String {
         var cleanPath = path
         if cleanPath.hasPrefix("file://") {
             cleanPath = String(cleanPath.dropFirst(7))
@@ -70,6 +70,7 @@ class HybridOcr: HybridOcrSpec {
         
         print("HybridOcr: Original Image: \(cgImage.width)x\(cgImage.height)")
         
+        // 1. Crop
         if let region = region {
              print("HybridOcr: Region Normalized: x=\(region.minX), y=\(region.minY), w=\(region.width), h=\(region.height)")
              
@@ -86,23 +87,42 @@ class HybridOcr: HybridOcrSpec {
             
             if let cropped = cgImage.cropping(to: cropRect) {
                 imageToProcess = cropped
-                
-                // Save cropped image to temp file for visual debugging
-                let tempDir = FileManager.default.temporaryDirectory
-                let fileName = "cropped_\(Date().timeIntervalSince1970).jpg"
-                let fileURL = tempDir.appendingPathComponent(fileName)
-                
-                let uiImage = UIImage(cgImage: cropped)
-                if let data = uiImage.jpegData(compressionQuality: 0.8) {
-                    try? data.write(to: fileURL)
-                    croppedImagePath = fileURL.absoluteString
-                }
             } else {
                 print("HybridOcr: Cropping failed!")
             }
         }
+        
+        // 2. Apply Contrast
+        if contrast != 1.0 {
+             let ciImage = CIImage(cgImage: imageToProcess)
+             let params: [String : Any] = [
+                 kCIInputContrastKey: contrast
+             ]
+             if let filter = CIFilter(name: "CIColorControls", parameters: params) {
+                 filter.setValue(ciImage, forKey: kCIInputImageKey)
+                 if let output = filter.outputImage {
+                     let context = CIContext()
+                     if let cgOutput = context.createCGImage(output, from: output.extent) {
+                         imageToProcess = cgOutput
+                     }
+                 }
+             }
+        }
+        
+        // 3. Save processed image for debug/UI
+        if region != nil || contrast != 1.0 {
+            let tempDir = FileManager.default.temporaryDirectory
+            let fileName = "processed_\(Date().timeIntervalSince1970).jpg"
+            let fileURL = tempDir.appendingPathComponent(fileName)
+            
+            let uiImage = UIImage(cgImage: imageToProcess)
+            if let data = uiImage.jpegData(compressionQuality: 0.8) {
+                try? data.write(to: fileURL)
+                croppedImagePath = fileURL.absoluteString
+            }
+        }
 
-        let ocrText = try await performOCR(on: imageToProcess, region: nil)
+        let ocrText = try await performOCR(on: imageToProcess, region: nil, digitsOnly: digitsOnly)
         
         // Return results as JSON
         let result: [String: Any] = [
@@ -114,7 +134,7 @@ class HybridOcr: HybridOcrSpec {
         return String(data: jsonData, encoding: .utf8) ?? ""
     }
 
-    private func performOCR(on pixelBuffer: CVPixelBuffer, region: CGRect?) async throws -> String {
+    private func performOCR(on pixelBuffer: CVPixelBuffer, region: CGRect?, digitsOnly: Bool) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error = error {
@@ -133,9 +153,14 @@ class HybridOcr: HybridOcrSpec {
                         }
                     }
                     
-                    let recognizedText = filteredResults
+                    var recognizedText = filteredResults
                         .compactMap { $0.topCandidates(1).first?.string }
                         .joined(separator: "\n")
+                        
+                    if digitsOnly {
+                        recognizedText = recognizedText.filter { $0.isNumber || $0 == "\n" || $0 == "." || $0 == "," }
+                    }
+                        
                     continuation.resume(returning: recognizedText)
                 } else {
                     continuation.resume(returning: "")
@@ -143,7 +168,7 @@ class HybridOcr: HybridOcrSpec {
             }
             
             request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
+            request.usesLanguageCorrection = !digitsOnly // Disable language correction for numbers usually
             
             // Set region of interest if specified
             if let region = region {
@@ -161,7 +186,7 @@ class HybridOcr: HybridOcrSpec {
         }
     }
 
-    private func performOCR(on cgImage: CGImage, region: CGRect?) async throws -> String {
+    private func performOCR(on cgImage: CGImage, region: CGRect?, digitsOnly: Bool) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error = error {
@@ -179,9 +204,14 @@ class HybridOcr: HybridOcrSpec {
                         }
                     }
                     
-                    let recognizedText = filteredResults
+                    var recognizedText = filteredResults
                         .compactMap { $0.topCandidates(1).first?.string }
                         .joined(separator: "\n")
+                        
+                    if digitsOnly {
+                        recognizedText = recognizedText.filter { $0.isNumber || $0 == "\n" || $0 == "." || $0 == "," }
+                    }
+                    
                     continuation.resume(returning: recognizedText)
                 } else {
                     continuation.resume(returning: "")
@@ -189,7 +219,7 @@ class HybridOcr: HybridOcrSpec {
             }
             
             request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
+            request.usesLanguageCorrection = !digitsOnly
             
             // Set region of interest if specified
             if let region = region {

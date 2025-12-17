@@ -28,7 +28,7 @@ class HybridOcr : HybridOcrSpec() {
 
     override fun scanImage(path: String): Promise<String> {
         return Promise.async {
-            recognizeTextFromImage(path, null)
+            recognizeTextFromImage(path, null, false, 1.0)
         }
     }
 
@@ -37,11 +37,13 @@ class HybridOcr : HybridOcrSpec() {
         x: Double,
         y: Double,
         width: Double,
-        height: Double
+        height: Double,
+        digitsOnly: Boolean?,
+        contrast: Double?
     ): Promise<String> {
         return Promise.async {
             val region = Region(x, y, width, height)
-            recognizeTextFromImage(path, region)
+            recognizeTextFromImage(path, region, digitsOnly ?: false, contrast ?: 1.0)
         }
     }
 
@@ -59,7 +61,7 @@ class HybridOcr : HybridOcrSpec() {
         throw Exception("scanFrame not yet implemented for Android")
     }
 
-    private suspend fun recognizeTextFromImage(path: String, region: Region?): String {
+    private suspend fun recognizeTextFromImage(path: String, region: Region?, digitsOnly: Boolean, contrast: Double): String {
         // Remove file:// prefix if present
         val cleanPath = if (path.startsWith("file://")) {
             path.substring(7)
@@ -101,12 +103,12 @@ class HybridOcr : HybridOcrSpec() {
              bitmap
         }
 
-        return performOCR(rotatedBitmap, region)
+        return performOCR(rotatedBitmap, region, digitsOnly, contrast)
     }
 
-    private suspend fun performOCR(bitmap: Bitmap, region: Region?): String = suspendCoroutine { continuation ->
+    private suspend fun performOCR(bitmap: Bitmap, region: Region?, digitsOnly: Boolean, contrast: Double): String = suspendCoroutine { continuation ->
         try {
-            val processedBitmap = if (region != null) {
+             val processedBitmap = if (region != null) {
                 // Crop the bitmap
                 val imageWidth = bitmap.width
                 val imageHeight = bitmap.height
@@ -129,24 +131,51 @@ class HybridOcr : HybridOcrSpec() {
             } else {
                 bitmap
             }
+            
+            // Apply contrast adjustment if needed (simple approximation)
+            val finalBitmap = if (contrast != 1.0) {
+                 val cm = android.graphics.ColorMatrix()
+                 val contrastScale = contrast.toFloat()
+                 // Scale relative to 1.0
+                 val scale = contrastScale
+                 val translate = (-.5f * scale + .5f) * 255.0f
+                 cm.set(floatArrayOf(
+                     scale, 0f, 0f, 0f, translate,
+                     0f, scale, 0f, 0f, translate,
+                     0f, 0f, scale, 0f, translate,
+                     0f, 0f, 0f, 1f, 0f
+                 ))
+                 val bmp = Bitmap.createBitmap(processedBitmap.width, processedBitmap.height, processedBitmap.config ?: Bitmap.Config.ARGB_8888)
+                 val canvas = android.graphics.Canvas(bmp)
+                 val paint = android.graphics.Paint()
+                 paint.colorFilter = android.graphics.ColorMatrixColorFilter(cm)
+                 canvas.drawBitmap(processedBitmap, 0f, 0f, paint)
+                 bmp
+            } else {
+                 processedBitmap
+            }
 
-            val image = InputImage.fromBitmap(processedBitmap, 0)
+            val image = InputImage.fromBitmap(finalBitmap, 0)
             
             // If we cropped, let's save it to a file to return to JS
-            // This is optional but good for debugging/UI as seen in Camera.tsx
              var croppedPath: String? = null
-             if (region != null) {
+             if (region != null || contrast != 1.0) {
                  val cacheDir = System.getProperty("java.io.tmpdir")
-                 val file = File(cacheDir, "cropped_${System.currentTimeMillis()}.jpg")
+                 val file = File(cacheDir, "processed_${System.currentTimeMillis()}.jpg")
                  java.io.FileOutputStream(file).use { out ->
-                     processedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                     finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
                  }
                  croppedPath = file.absolutePath
              }
 
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    val text = visionText.text
+                    var text = visionText.text
+                    
+                    if (digitsOnly) {
+                        // Keep only digits and newlines
+                        text = text.filter { it.isDigit() || it == '\n' || it == '.' || it == ',' }
+                    }
                     
                     // Construct a simpler JSON-like string manually or just return text
                     // To support the Camera.tsx logic which expects JSON:

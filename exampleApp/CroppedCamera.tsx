@@ -35,19 +35,21 @@ export default function CroppedCamera() {
 
             // Perform OCR on cropped region
             // Note: We assume native module handles the cropping
-            const result = await HybridOcr.scanImageWithRegion(
+            const resultVal = await HybridOcr.scanImageWithRegion(
                 photo.path,
                 scanRegionNormalized.x,
                 scanRegionNormalized.y,
                 scanRegionNormalized.width,
-                scanRegionNormalized.height
+                scanRegionNormalized.height,
+                true, // digitsOnly
+                1.2   // contrast
             )
 
             // Depending on implementation, result might be JSON or simple text
             // If it returns path to cropped image, we can display it
             // For now, let's try to parse if it's JSON as seen in Camera.tsx
             try {
-                const parsed = JSON.parse(result)
+                const parsed = JSON.parse(resultVal)
                 if (parsed.croppedImagePath) {
                     // Since we don't have direct base64 of cropped image yet unless we read the file
                     // We will use the file path
@@ -58,7 +60,7 @@ export default function CroppedCamera() {
                     // For UI feedback we might just show "Captured" standard logic
                 }
             } catch (e) {
-                console.log("OCR Result (text):", result)
+                console.log("OCR Result (text):", resultVal)
                 // Fallback to showing the full photo if parsing fails or its just text
                 setCapturedImage(photo.path)
             }

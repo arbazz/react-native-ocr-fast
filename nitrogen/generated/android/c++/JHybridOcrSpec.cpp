@@ -34,6 +34,7 @@ namespace margelo::nitro::ocr { struct NativeBuffer; }
 #include "NativeBuffer.hpp"
 #include "JFunc_std__shared_ptr_Promise_NativeBuffer__.hpp"
 #include "JNativeBuffer.hpp"
+#include <optional>
 
 namespace margelo::nitro::ocr {
 
@@ -104,9 +105,9 @@ namespace margelo::nitro::ocr {
       return __promise;
     }();
   }
-  std::shared_ptr<Promise<std::string>> JHybridOcrSpec::scanImageWithRegion(const std::string& path, double x, double y, double width, double height) {
-    static const auto method = javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* path */, double /* x */, double /* y */, double /* width */, double /* height */)>("scanImageWithRegion");
-    auto __result = method(_javaPart, jni::make_jstring(path), x, y, width, height);
+  std::shared_ptr<Promise<std::string>> JHybridOcrSpec::scanImageWithRegion(const std::string& path, double x, double y, double width, double height, std::optional<bool> digitsOnly, std::optional<double> contrast) {
+    static const auto method = javaClassStatic()->getMethod<jni::local_ref<JPromise::javaobject>(jni::alias_ref<jni::JString> /* path */, double /* x */, double /* y */, double /* width */, double /* height */, jni::alias_ref<jni::JBoolean> /* digitsOnly */, jni::alias_ref<jni::JDouble> /* contrast */)>("scanImageWithRegion");
+    auto __result = method(_javaPart, jni::make_jstring(path), x, y, width, height, digitsOnly.has_value() ? jni::JBoolean::valueOf(digitsOnly.value()) : nullptr, contrast.has_value() ? jni::JDouble::valueOf(contrast.value()) : nullptr);
     return [&]() {
       auto __promise = Promise<std::string>::create();
       __result->cthis()->addOnResolvedListener([=](const jni::alias_ref<jni::JObject>& __boxedResult) {

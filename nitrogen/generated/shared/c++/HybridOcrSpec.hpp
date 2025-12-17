@@ -19,6 +19,7 @@ namespace margelo::nitro::ocr { struct Frame; }
 #include <string>
 #include <NitroModules/Promise.hpp>
 #include "Frame.hpp"
+#include <optional>
 
 namespace margelo::nitro::ocr {
 
@@ -54,7 +55,7 @@ namespace margelo::nitro::ocr {
       virtual std::string scan(const std::string& input) = 0;
       virtual std::shared_ptr<Promise<std::string>> scanFrame(const Frame& frame) = 0;
       virtual std::shared_ptr<Promise<std::string>> scanImage(const std::string& path) = 0;
-      virtual std::shared_ptr<Promise<std::string>> scanImageWithRegion(const std::string& path, double x, double y, double width, double height) = 0;
+      virtual std::shared_ptr<Promise<std::string>> scanImageWithRegion(const std::string& path, double x, double y, double width, double height, std::optional<bool> digitsOnly, std::optional<double> contrast) = 0;
 
     protected:
       // Hybrid Setup

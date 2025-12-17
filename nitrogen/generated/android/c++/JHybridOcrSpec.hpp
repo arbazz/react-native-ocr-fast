@@ -57,7 +57,7 @@ namespace margelo::nitro::ocr {
     std::string scan(const std::string& input) override;
     std::shared_ptr<Promise<std::string>> scanFrame(const Frame& frame) override;
     std::shared_ptr<Promise<std::string>> scanImage(const std::string& path) override;
-    std::shared_ptr<Promise<std::string>> scanImageWithRegion(const std::string& path, double x, double y, double width, double height) override;
+    std::shared_ptr<Promise<std::string>> scanImageWithRegion(const std::string& path, double x, double y, double width, double height, std::optional<bool> digitsOnly, std::optional<double> contrast) override;
 
   private:
     friend HybridBase;
