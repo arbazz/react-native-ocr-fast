@@ -169,7 +169,7 @@ open class HybridOcrSpec_cxx {
   }
   
   @inline(__always)
-  public final func scanImageWithRegion(path: std.string, x: Double, y: Double, width: Double, height: Double, digitsOnly: bridge.std__optional_bool_, contrast: bridge.std__optional_double_, useTesseract: bridge.std__optional_bool_) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
+  public final func scanImageWithRegion(path: std.string, x: Double, y: Double, width: Double, height: Double, digitsOnly: bridge.std__optional_bool_, contrast: bridge.std__optional_double_) -> bridge.Result_std__shared_ptr_Promise_std__string___ {
     do {
       let __result = try self.__implementation.scanImageWithRegion(path: String(path), x: x, y: y, width: width, height: height, digitsOnly: { () -> Bool? in
         if bridge.has_value_std__optional_bool_(digitsOnly) {
@@ -178,14 +178,7 @@ open class HybridOcrSpec_cxx {
         } else {
           return nil
         }
-      }(), contrast: contrast.value, useTesseract: { () -> Bool? in
-        if bridge.has_value_std__optional_bool_(useTesseract) {
-          let __unwrapped = bridge.get_std__optional_bool_(useTesseract)
-          return __unwrapped
-        } else {
-          return nil
-        }
-      }())
+      }(), contrast: contrast.value)
       let __resultCpp = { () -> bridge.std__shared_ptr_Promise_std__string__ in
         let __promise = bridge.create_std__shared_ptr_Promise_std__string__()
         let __promiseHolder = bridge.wrap_std__shared_ptr_Promise_std__string__(__promise)

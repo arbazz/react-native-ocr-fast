@@ -5,11 +5,7 @@ import UIKit
 import CoreImage
 import Accelerate
 
-import TesseractOCR
-
-// ... (existing imports)
-
-
+class HybridOcr: HybridOcrSpec {
 
     func scan(input: String) throws -> String {
         return input
@@ -27,10 +23,10 @@ import TesseractOCR
         }
     }
 
-    func scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Bool?, contrast: Double?, useTesseract: Bool?) throws -> Promise<String> {
+    func scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Bool?, contrast: Double?) throws -> Promise<String> {
         return Promise.async {
             let region = CGRect(x: x, y: y, width: width, height: height)
-            return try await self.recognizeTextFromImage(path, region: region, digitsOnly: digitsOnly ?? false, contrast: contrast ?? 1.0, useTesseract: useTesseract ?? false)
+            return try await self.recognizeTextFromImage(path, region: region, digitsOnly: digitsOnly ?? false, contrast: contrast ?? 1.0)
         }
     }
 
@@ -48,13 +44,7 @@ import TesseractOCR
         return try await performOCR(on: pixelBuffer, region: nil, digitsOnly: false)
     }
 
-    private func recognizeTextFromImage(
-        path: String, 
-        region: CGRect?, 
-        digitsOnly: Bool = false, 
-        contrast: Double = 1.0,
-        useTesseract: Bool = false
-    ) async throws -> String {
+    private func recognizeTextFromImage(_ path: String, region: CGRect?, digitsOnly: Bool = false, contrast: Double = 1.0) async throws -> String {
         var cleanPath = path
         if cleanPath.hasPrefix("file://") {
             cleanPath = String(cleanPath.dropFirst(7))
@@ -109,12 +99,7 @@ import TesseractOCR
             croppedImagePath = saveProcessedImage(imageToProcess)
         }
 
-        let ocrText: String
-        if useTesseract {
-             ocrText = try await performTesseractOCR(on: imageToProcess, digitsOnly: digitsOnly)
-        } else {
-             ocrText = try await performOCR(on: imageToProcess, region: nil, digitsOnly: digitsOnly)
-        }
+        let ocrText = try await performOCR(on: imageToProcess, region: nil, digitsOnly: digitsOnly)
         
         // Return results as JSON
         if croppedImagePath != nil || region != nil {
@@ -128,30 +113,6 @@ import TesseractOCR
         }
         
         return ocrText
-    }
-    
-    private func performTesseractOCR(on cgImage: CGImage, digitsOnly: Bool) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-             DispatchQueue.global(qos: .userInitiated).async {
-                 if let tesseract = G8Tesseract(language: "eng") {
-                     tesseract.image = UIImage(cgImage: cgImage)
-                     
-                     if digitsOnly {
-                         tesseract.charWhitelist = "0123456789.,-"
-                     }
-                     
-                     if tesseract.recognize() {
-                         let text = tesseract.recognizedText ?? ""
-                         print("HybridOcr: Tesseract result: \(text)")
-                         continuation.resume(returning: text)
-                     } else {
-                         continuation.resume(throwing: NSError(domain: "HybridOcr", code: 4, userInfo: [NSLocalizedDescriptionKey: "Tesseract recognition failed"]))
-                     }
-                 } else {
-                     continuation.resume(throwing: NSError(domain: "HybridOcr", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not initialize Tesseract. Ensure tessdata/eng.traineddata is in your app bundle."]))
-                 }
-             }
-        }
     }
     
     private func normalizeImageOrientation(_ image: UIImage) -> UIImage {

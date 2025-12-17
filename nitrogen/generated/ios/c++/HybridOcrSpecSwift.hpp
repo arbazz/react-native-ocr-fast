@@ -102,8 +102,8 @@ namespace margelo::nitro::ocr {
       auto __value = std::move(__result.value());
       return __value;
     }
-    inline std::shared_ptr<Promise<std::string>> scanImageWithRegion(const std::string& path, double x, double y, double width, double height, std::optional<bool> digitsOnly, std::optional<double> contrast, std::optional<bool> useTesseract) override {
-      auto __result = _swiftPart.scanImageWithRegion(path, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y), std::forward<decltype(width)>(width), std::forward<decltype(height)>(height), digitsOnly, contrast, useTesseract);
+    inline std::shared_ptr<Promise<std::string>> scanImageWithRegion(const std::string& path, double x, double y, double width, double height, std::optional<bool> digitsOnly, std::optional<double> contrast) override {
+      auto __result = _swiftPart.scanImageWithRegion(path, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y), std::forward<decltype(width)>(width), std::forward<decltype(height)>(height), digitsOnly, contrast);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }

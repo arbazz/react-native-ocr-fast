@@ -60,7 +60,7 @@ abstract class HybridOcrSpec: HybridObject() {
   
   @DoNotStrip
   @Keep
-  abstract fun scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Boolean?, contrast: Double?, useTesseract: Boolean?): Promise<String>
+  abstract fun scanImageWithRegion(path: String, x: Double, y: Double, width: Double, height: Double, digitsOnly: Boolean?, contrast: Double?): Promise<String>
 
   private external fun initHybrid(): HybridData
 

@@ -32,7 +32,7 @@ class HybridOcr : HybridOcrSpec() {
 
     override fun scanImage(path: String): Promise<String> {
         return Promise.async {
-            recognizeTextFromImage(path, null, false, 1.0, false)
+            recognizeTextFromImage(path, null, false, 1.0)
         }
     }
 
@@ -43,12 +43,11 @@ class HybridOcr : HybridOcrSpec() {
         width: Double,
         height: Double,
         digitsOnly: Boolean?,
-        contrast: Double?,
-        useTesseract: Boolean?
+        contrast: Double?
     ): Promise<String> {
         return Promise.async {
             val region = Region(x, y, width, height)
-            recognizeTextFromImage(path, region, digitsOnly ?: false, contrast ?: 1.0, useTesseract ?: false)
+            recognizeTextFromImage(path, region, digitsOnly ?: false, contrast ?: 1.0)
         }
     }
 
@@ -65,8 +64,7 @@ class HybridOcr : HybridOcrSpec() {
         path: String, 
         region: Region?, 
         digitsOnly: Boolean, 
-        contrast: Double,
-        useTesseract: Boolean
+        contrast: Double
     ): String {
         val cleanPath = if (path.startsWith("file://")) {
             path.substring(7)
@@ -90,7 +88,7 @@ class HybridOcr : HybridOcrSpec() {
 
         val rotatedBitmap = handleRotation(bitmap, cleanPath)
 
-        return performOCR(rotatedBitmap, region, digitsOnly, contrast, useTesseract)
+        return performOCR(rotatedBitmap, region, digitsOnly, contrast)
     }
 
     private fun handleRotation(bitmap: Bitmap, path: String): Bitmap {
@@ -124,8 +122,7 @@ class HybridOcr : HybridOcrSpec() {
         bitmap: Bitmap, 
         region: Region?, 
         digitsOnly: Boolean, 
-        contrast: Double,
-        useTesseract: Boolean
+        contrast: Double
     ): String = suspendCoroutine { continuation ->
         try {
             // Step 1: Crop if region specified
@@ -148,37 +145,18 @@ class HybridOcr : HybridOcrSpec() {
                 null
             }
 
-            if (useTesseract) {
-                // Perform Tesseract OCR
-                try {
-                    val tesseract = com.googlecode.tesseract.android.TessBaseAPI()
-                    // Assuming tessdata is in external storage or we can't Init. 
-                    // For library usage, this path usually comes from the user or default location
-                    val dataPath = "/storage/emulated/0/Download/tessdata" // Simplification for demo
-                    // In a real app, you'd copy assets to filesDir. 
-                    // Since we can't access context easily here to copy assets, we assume user provided it
-                    // Or we fallback to MLKit if init fails
+            val image = InputImage.fromBitmap(preprocessedBitmap, 0)
+
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    var text = visionText.text
                     
-                    // Simple logic: We will assume specific path or fail
-                    if (!File(dataPath).exists()) {
-                         throw Exception("Tessdata not found at $dataPath. Please ensure tessdata/eng.traineddata exists.")
-                    }
-                    
-                    if (!tesseract.init(File(dataPath).parent, "eng")) {
-                        throw Exception("Tesseract initialization failed")
-                    }
+                    android.util.Log.d("HybridOcr", "Raw OCR result: $text")
                     
                     if (digitsOnly) {
-                        tesseract.setVariable(com.googlecode.tesseract.android.TessBaseAPI.VAR_CHAR_WHITELIST, "0123456789.,-")
+                        text = text.filter { it.isDigit() || it == '\n' || it == '.' || it == ',' || it == '-' }
                     }
                     
-                    tesseract.setImage(preprocessedBitmap)
-                    val text = tesseract.utF8Text
-                    tesseract.stop()
-                    tesseract.recycle()
-                    
-                    android.util.Log.d("HybridOcr", "Tesseract result: $text")
-
                     if (processedPath != null) {
                         val cleanText = text.replace("\"", "\\\"").replace("\n", "\\n")
                         val json = "{\"text\": \"$cleanText\", \"croppedImagePath\": \"file://$processedPath\"}"
@@ -186,35 +164,10 @@ class HybridOcr : HybridOcrSpec() {
                     } else {
                         continuation.resume(text)
                     }
-                } catch (e: Exception) {
-                    continuation.resumeWithException(e)
                 }
-            } else {
-                // Perform MLKit OCR (default)
-                val image = InputImage.fromBitmap(preprocessedBitmap, 0)
-
-                recognizer.process(image)
-                    .addOnSuccessListener { visionText ->
-                        var text = visionText.text
-                        
-                        android.util.Log.d("HybridOcr", "Raw OCR result: $text")
-                        
-                        if (digitsOnly) {
-                            text = text.filter { it.isDigit() || it == '\n' || it == '.' || it == ',' || it == '-' }
-                        }
-                        
-                        if (processedPath != null) {
-                            val cleanText = text.replace("\"", "\\\"").replace("\n", "\\n")
-                            val json = "{\"text\": \"$cleanText\", \"croppedImagePath\": \"file://$processedPath\"}"
-                            continuation.resume(json)
-                        } else {
-                            continuation.resume(text)
-                        }
-                    }
-                    .addOnFailureListener { exception ->
-                        continuation.resumeWithException(exception)
-                    }
-            }
+                .addOnFailureListener { exception ->
+                    continuation.resumeWithException(exception)
+                }
         } catch (e: Exception) {
             continuation.resumeWithException(e)
         }

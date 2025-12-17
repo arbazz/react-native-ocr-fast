@@ -139,6 +139,5 @@ dependencies {
   implementation project(":react-native-nitro-modules")
 
   implementation 'com.google.mlkit:text-recognition:16.0.1'
-  implementation 'cz.adaptech.tesseract4android:tesseract4android:4.7.0'
 }
 
